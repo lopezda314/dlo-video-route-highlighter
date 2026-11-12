@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VideoRouteHighlighter — The Co-Op Life Map Animator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background-color: #090d16;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .checkerboard {
+      background-image:
+        linear-gradient(45deg, #1e293b 25%, transparent 25%),
+        linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #1e293b 75%),
+        linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <!-- Top Bar -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur px-5 py-3 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-slate-950 text-sm shadow">
+        🚲
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-bold text-base tracking-tight text-white">VideoRouteHighlighter</h1>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium">
+            The Co-Op Life Studio
+          </span>
+        </div>
+        <p class="text-xs text-slate-400">
+          Real NYC street map tiles • Animated dashed route segments • Custom bobbing head cutouts • 60fps video export
+        </p>
+      </div>
+    </div>
+
+    <!-- Playback & Export Toolbar -->
+    <div class="flex flex-wrap items-center gap-2">
+      <button id="btnPlay" class="px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shadow">
+        ⏸ Pause
+      </button>
+      <button id="btnRestart" class="px-3 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+        ⏮ Restart Segment
+      </button>
+      <button id="btnLoop" class="px-3 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+        🔁 Loop: ON
+      </button>
+      <div class="h-5 w-px bg-slate-800 mx-1"></div>
+      <button id="btnSnapBike" class="px-3 py-2 rounded-lg text-xs font-semibold bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 transition" title="Use OSRM Cycling Router to snap waypoints to real NYC bike paths and streets">
+        🛣️ Snap to Real Bike Lanes
+      </button>
+      <button id="btnExportVideo" class="px-4 py-2 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition shadow flex items-center gap-1.5">
+        <span>⏺</span> <span id="exportBtnLabel">Record Segment Video (60fps)</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 grid grid-cols-1 xl:grid-cols-12 gap-4 p-4 max-w-[1680px] w-full mx-auto">
+    <!-- Left / Center: Interactive Canvas Viewport (8 cols) -->
+    <section class="xl:col-span-8 flex flex-col gap-3">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col gap-2.5 shadow-lg">
+        <!-- Viewport Top Bar -->
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div class="flex items-center gap-2">
+            <span id="routeBadge" class="font-semibold text-white">Hudson River Greenway</span>
+            <span class="text-slate-500">•</span>
+            <span id="segmentBadge" class="text-emerald-400 font-medium">Battery Park → 14th St / Little Island</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <span id="timeReadout" class="font-mono text-slate-300 bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
+              0.0s / 3.0s (0%)
+            </span>
+            <button id="btnFitRoute" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+              🔍 Fit Full Route
+            </button>
+            <button id="btnFitSegment" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+              🎯 Zoom to Active Segment
+            </button>
+            <button id="btnAddStopMode" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+              ➕ Click Map to Add Stop
+            </button>
+          </div>
+        </div>
+
+        <!-- Canvas Container -->
+        <div class="relative w-full flex items-center justify-center bg-slate-950 rounded-lg border border-slate-800 overflow-hidden checkerboard p-2">
+          <canvas id="stageCanvas" width="1920" height="1080" class="max-h-[62vh] w-auto max-w-full rounded shadow-2xl cursor-grab active:cursor-grabbing"></canvas>
+          <div id="recordingBanner" class="hidden absolute top-4 right-4 bg-rose-600 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg animate-pulse">
+            ● RECORDING 60FPS CLIP...
+          </div>
+        </div>
+
+        <!-- Timeline Scrubber -->
+        <div class="flex items-center gap-3 pt-1">
+          <span class="text-xs font-medium text-slate-400 w-14">Timeline</span>
+          <input id="scrubSlider" type="range" min="0" max="1000" value="0" class="w-full accent-emerald-500 cursor-pointer" />
+          <span class="text-xs text-slate-400 hidden sm:inline">Drag map to pan • Scroll to zoom</span>
+        </div>
+      </div>
+
+      <!-- Waypoints & Stops Editor -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Route Waypoints &amp; Stops
+            </h2>
+            <p class="text-xs text-slate-500">
+              Click any stop pill to set it as the <strong class="text-slate-300">Animate Up To</strong> target (or <kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-slate-300">Shift+Click</kbd> to set <strong class="text-slate-300">Start At</strong>). Double-click a stop to rename it.
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer transition">
+              📂 Import .GPX / .JSON
+              <input id="fileImportInput" type="file" accept=".gpx,.xml,.json" class="hidden" />
+            </label>
+            <button id="btnSaveJson" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+              💾 Save Project (.json)
+            </button>
+            <button id="btnResetPreset" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+              ↺ Reset Route
+            </button>
+          </div>
+        </div>
+        <div id="stopsContainer" class="flex flex-wrap gap-2"></div>
+      </div>
+    </section>
+
+    <!-- Right Column: Inspector Controls (4 cols) -->
+    <aside class="xl:col-span-4 space-y-3 overflow-y-auto max-h-[88vh] pr-1">
+      <!-- 1. Route & Segment Timing -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow">
+        <h2 class="text-sm font-bold text-white flex items-center justify-between">
+          <span>1. Route &amp; Segment Selection</span>
+          <span class="text-xs font-normal text-slate-400">2–5s Callouts</span>
+        </h2>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Preset Episode Route</label>
+          <select id="presetSelect" class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-3 py-2 text-xs">
+            <option value="nz_full" selected>New Zealand Grand Adventure</option>
+            <option value="nz_a2o">Alps 2 Ocean Cycle Trail (300km)</option>
+            <option value="hudson">Hudson River Greenway (Battery Park → GWB)</option>
+            <option value="bedford">Video 1: Bedford Avenue (Greenpoint → Sheepshead Bay)</option>
+            <option value="ave34">Video 2: 34th Ave Open Street (Jackson Hts → Corona)</option>
+            <option value="ocean">Video 3: Ocean Parkway (Prospect Park → Coney Island)</option>
+            <option value="grand">Video 4: Grand Concourse (149th St → Poe Park)</option>
+            <option value="stnick">Video 5: St. Nicholas Ave (110th St → 181st St)</option>
+            <option value="lga_citibike">Challenge: Citi Bike to LGA Airport</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Start Segment At</label>
+            <select id="startStopSelect" class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-2.5 py-2 text-xs"></select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Animate Up To</label>
+            <select id="endStopSelect" class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-2.5 py-2 text-xs"></select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5 pt-1">
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400">Duration</span>
+              <span id="durationVal" class="font-semibold text-emerald-400">3.0s</span>
+            </div>
+            <input id="durationSlider" type="range" min="1.0" max="25.0" step="0.5" value="3.0" class="w-full accent-emerald-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Hold at End</label>
+            <select id="holdEndSelect" class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-2.5 py-1.5 text-xs">
+              <option value="0.6">0.6s Pause</option>
+              <option value="1.2">1.2s Pause</option>
+              <option value="0">No Pause</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Avatars: David & Amanda Cutouts -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold text-white">2. Animated Heads / Bike Marker</h2>
+          <button id="btnClearAvatars" class="text-xs text-slate-400 hover:text-slate-200 underline">Reset Photos</button>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Marker Style</label>
+          <select id="markerStyleSelect" class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-3 py-2 text-xs">
+            <option value="duo">David &amp; Amanda Floating Heads + Bike Badge</option>
+            <option value="duo_clean">David &amp; Amanda Floating Heads Only (No Circle Crop)</option>
+            <option value="bike">Animated Bicycle Badge Only</option>
+            <option value="single">Single Head / Custom Icon</option>
+            <option value="beacon">Clean Glowing GPS Dot</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <label class="flex flex-col items-center justify-center p-2.5 rounded-lg border border-dashed border-slate-700 hover:border-emerald-500 bg-slate-950/70 cursor-pointer transition text-center">
+            <span class="text-xs font-semibold text-sky-400">🧑🏻 David Cutout</span>
+            <span class="text-xs text-slate-400 mt-0.5">Upload PNG/JPG (Auto-Saved)</span>
+            <input id="davidFile" type="file" accept="image/*" class="hidden" />
+          </label>
+          <label class="flex flex-col items-center justify-center p-2.5 rounded-lg border border-dashed border-slate-700 hover:border-pink-500 bg-slate-950/70 cursor-pointer transition text-center">
+            <span class="text-xs font-semibold text-pink-400">👩🏻 Amanda Cutout</span>
+            <span class="text-xs text-slate-400 mt-0.5">Upload PNG/JPG (Auto-Saved)</span>
+            <input id="amandaFile" type="file" accept="image/*" class="hidden" />
+          </label>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-400">Head Size</span>
+              <span id="headSizeVal" class="text-slate-200 font-medium">56px</span>
+            </div>
+            <input id="headSizeSlider" type="range" min="28" max="110" value="56" class="w-full accent-emerald-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Motion / Bobbing</label>
+            <select id="bobStyleSelect" class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-2.5 py-1.5 text-xs">
+              <option value="wobble">Playful Head Tilt + Pedal Bob</option>
+              <option value="gentle">Gentle Vertical Bob</option>
+              <option value="none">Smooth Glide (No Bob)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Dashed Line & Map Appearance -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow">
+        <h2 class="text-sm font-bold text-white">3. Dashed Line &amp; Map Style</h2>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Active Segment Style</label>
+            <select id="pathStyleSelect" class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-2.5 py-2 text-xs">
+              <option value="marching_dashes">Marching Dashes (Classic)</option>
+              <option value="glow_dashes">Solid Core + Marching Dashes</option>
+              <option value="dots">Animated Trail Dots</option>
+              <option value="solid">Solid Neon Ribbon</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Route Accent Color</label>
+            <div class="flex items-center gap-2">
+              <input id="routeColorPicker" type="color" value="#22c55e" class="h-8 w-12 rounded bg-slate-950 border border-slate-700 cursor-pointer" />
+              <select id="routeColorPreset" class="flex-1 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-2 py-1.5 text-xs">
+                <option value="#22c55e">Greenway</option>
+                <option value="#f97316">Strava Orange</option>
+                <option value="#38bdf8">Citi Bike Blue</option>
+                <option value="#f43f5e">Coral Red</option>
+                <option value="#eab308">Taxi Gold</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Map Tile Style</label>
+            <select id="tileStyleSelect" class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-2.5 py-2 text-xs">
+              <option value="carto_dark">Carto Dark Matter (Sleek)</option>
+              <option value="carto_voyager">Carto Voyager (Warm Color)</option>
+              <option value="carto_light">Carto Positron (Clean Light)</option>
+              <option value="osm">OpenStreetMap Standard</option>
+              <option value="chroma">Green Screen (#00FF00 Key)</option>
+              <option value="transparent">Transparent Alpha (.webm)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Line Thickness</label>
+            <input id="lineWidthSlider" type="range" min="4" max="20" value="10" class="w-full accent-emerald-500 mt-2" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">
+            CARTO API Key <span class="text-slate-500">(Free at carto.com/basemaps/apikey)</span>
+          </label>
+          <input id="cartoApiKeyInput" type="password" placeholder="Paste CARTO Basemaps API key (auto-saved)..." class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-3 py-1.5 text-xs placeholder:text-slate-600" />
+        </div>
+
+        <!-- Camera & Aspect Ratio -->
+        <div class="grid grid-cols-2 gap-2.5 pt-1">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Camera Movement</label>
+            <select id="cameraModeSelect" class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-2.5 py-2 text-xs">
+              <option value="static">Locked Map View (Pan/Zoom freely)</option>
+              <option value="follow_smooth">Smooth Follow Cam (Pans with You)</option>
+              <option value="cinematic_push">Slow Cinematic Zoom-In</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Video Format</label>
+            <select id="aspectRatioSelect" class="w-full rounded-lg bg-slate-950 border border-slate-700 text-slate-100 px-2.5 py-2 text-xs">
+              <option value="16:9">16:9 YouTube (1920×1080)</option>
+              <option value="9:16">9:16 Shorts / Reels (1080×1920)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Overlay toggles -->
+        <div class="flex flex-wrap items-center gap-4 pt-2 border-t border-slate-800 text-xs text-slate-300">
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input id="chkShowLabels" type="checkbox" checked class="accent-emerald-500" />
+            <span>Show Stop Labels</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input id="chkShowPrior" type="checkbox" checked class="accent-emerald-500" />
+            <span>Show Prior Segments</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input id="chkShowHud" type="checkbox" checked class="accent-emerald-500" />
+            <span>Lower-Third Title Banner</span>
+          </label>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script src="presets.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
